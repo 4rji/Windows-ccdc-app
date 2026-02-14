@@ -68,8 +68,8 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add("Self-test", null, (_, _) => StartSelfTest(exitWhenDone: false));
-        menu.Items.Add("Ver ultimo evento", null, (_, _) => OpenLastEventDetails());
-        menu.Items.Add("Salir", null, (_, _) => ExitThread());
+        menu.Items.Add("View last event", null, (_, _) => OpenLastEventDetails());
+        menu.Items.Add("Exit", null, (_, _) => ExitThread());
         return menu;
     }
 
@@ -83,16 +83,16 @@ internal sealed class TrayAppContext : ApplicationContext
             switch (step)
             {
                 case 1:
-                    Show("Self-test", "Esta es una notificacion de prueba.");
+                    Show("Self-test", "This is a test notification.");
                     break;
                 case 2:
-                    Show("Usuario creado (4720)", "Usuario: testuser\nCreado por: admin\nHora: (self-test)");
+                    Show("User created (4720)", "User: testuser\nCreated by: admin\nTime: (self-test)");
                     break;
                 case 3:
-                    Show("RDP logon (4624 tipo 10)", "Usuario: DOMAIN\\alice\nIP: 10.0.0.5\nHora: (self-test)");
+                    Show("RDP logon (4624 type 10)", "User: DOMAIN\\alice\nIP: 10.0.0.5\nTime: (self-test)");
                     break;
                 case 4:
-                    Show("Kerberos ticket (4769)", "Usuario: DOMAIN\\alice\nService: cifs/fileserver\nIP: 10.0.0.5\nHora: (self-test)");
+                    Show("Kerberos ticket (4769)", "User: DOMAIN\\alice\nService: cifs/fileserver\nIP: 10.0.0.5\nTime: (self-test)");
                     break;
                 default:
                     timer.Stop();
@@ -137,7 +137,7 @@ internal sealed class TrayAppContext : ApplicationContext
                 onEvent: e => NotifyKerberos(e));
         }
 
-        Show("Local Event Notifier", "Escuchando eventos del log Security...");
+        Show("Local Event Notifier", "Watching events in the Security log...");
     }
 
     private void Watch(string logName, string xPath, Action<EventSnapshot> onEvent)
@@ -150,7 +150,7 @@ internal sealed class TrayAppContext : ApplicationContext
             {
                 if (args.EventException is not null)
                 {
-                    Post(() => Show("Error leyendo Event Log", args.EventException.Message, ToolTipIcon.Error));
+                    Post(() => Show("Error reading Event Log", args.EventException.Message, ToolTipIcon.Error));
                     return;
                 }
 
@@ -163,7 +163,7 @@ internal sealed class TrayAppContext : ApplicationContext
                 }
                 catch (Exception ex)
                 {
-                    Post(() => Show("Error parseando evento", ex.Message, ToolTipIcon.Error));
+                    Post(() => Show("Error parsing event", ex.Message, ToolTipIcon.Error));
                     return;
                 }
                 finally
@@ -177,7 +177,7 @@ internal sealed class TrayAppContext : ApplicationContext
                 }
                 catch (Exception ex)
                 {
-                    Post(() => Show("Error procesando evento", ex.Message, ToolTipIcon.Error));
+                    Post(() => Show("Error handling event", ex.Message, ToolTipIcon.Error));
                 }
             };
 
@@ -186,7 +186,7 @@ internal sealed class TrayAppContext : ApplicationContext
         }
         catch (Exception ex)
         {
-            Show("No se pudo abrir el log Security", ex.Message, ToolTipIcon.Error);
+            Show("Could not open the Security log", ex.Message, ToolTipIcon.Error);
         }
     }
 
@@ -200,8 +200,8 @@ internal sealed class TrayAppContext : ApplicationContext
 
         if (ShouldDedup($"4720|{createdUser}|{byUser}")) return;
 
-        var msg = $"Usuario: {createdUser}\nCreado por: {byUser}\nHora: {FmtTime(e.TimeCreated)}";
-        Post(() => ShowEvent("Usuario creado (4720)", msg, e));
+        var msg = $"User: {createdUser}\nCreated by: {byUser}\nTime: {FmtTime(e.TimeCreated)}";
+        Post(() => ShowEvent("User created (4720)", msg, e));
     }
 
     private void NotifyRdpLogon(EventSnapshot e)
@@ -212,8 +212,8 @@ internal sealed class TrayAppContext : ApplicationContext
 
         if (ShouldDedup($"4624|{user}|{ip}")) return;
 
-        var msg = $"Usuario: {user}\nIP/Host: {ip}\nHora: {FmtTime(e.TimeCreated)}";
-        Post(() => ShowEvent("RDP logon (4624 tipo 10)", msg, e));
+        var msg = $"User: {user}\nIP/Host: {ip}\nTime: {FmtTime(e.TimeCreated)}";
+        Post(() => ShowEvent("RDP logon (4624 type 10)", msg, e));
     }
 
     private void NotifyKerberos(EventSnapshot e)
@@ -239,11 +239,11 @@ internal sealed class TrayAppContext : ApplicationContext
         {
             4768 => "Kerberos TGT (4768)",
             4769 => "Kerberos Service Ticket (4769)",
-            4770 => "Kerberos ticket renovado (4770)",
+            4770 => "Kerberos ticket renewed (4770)",
             _ => $"Kerberos ({e.EventId})"
         };
 
-        var msg = $"Usuario: {user}\nService: {svc}\nIP: {ip}\nHora: {FmtTime(e.TimeCreated)}";
+        var msg = $"User: {user}\nService: {svc}\nIP: {ip}\nTime: {FmtTime(e.TimeCreated)}";
         Post(() => ShowEvent(title, msg, e));
     }
 
@@ -295,7 +295,7 @@ internal sealed class TrayAppContext : ApplicationContext
     private void ShowEvent(string title, string text, EventSnapshot e, ToolTipIcon icon = ToolTipIcon.Info)
     {
         _lastEvent = e;
-        var hint = _settings.AppendClickHint ? "\n\nClick para ver detalles." : "";
+        var hint = _settings.AppendClickHint ? "\n\nClick to view details." : "";
         _notifyIcon.ShowBalloonTip(6000, title, text + hint, icon);
     }
 
@@ -305,7 +305,7 @@ internal sealed class TrayAppContext : ApplicationContext
         {
             if (_lastEvent is null)
             {
-                Show("Local Event Notifier", "No hay un evento reciente para mostrar.");
+                Show("Local Event Notifier", "No recent event to show.");
                 return;
             }
 
