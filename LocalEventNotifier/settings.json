@@ -1,0 +1,8 @@
+{
+  "EnableUserCreated": true,
+  "EnableRdpLogon": true,
+  "EnableKerberosTickets": true,
+  "IgnoreMachineAccounts": true,
+  "DedupSeconds": 10
+}
+
