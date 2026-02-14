@@ -3,6 +3,6 @@
   "EnableRdpLogon": true,
   "EnableKerberosTickets": true,
   "IgnoreMachineAccounts": true,
-  "DedupSeconds": 10
+  "DedupSeconds": 10,
+  "AppendClickHint": true
 }
-

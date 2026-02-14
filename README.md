@@ -23,10 +23,29 @@ dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=
 El exe queda en:
 `LocalEventNotifier\bin\Release\net8.0-windows\win-x64\publish\LocalEventNotifier.exe`
 
+## Compilar desde Linux para Windows (cross-compile)
+1) Instala .NET 8 SDK en Linux.
+2) En tu Linux:
+```bash
+cd LocalEventNotifier
+dotnet restore
+dotnet publish -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true
+```
+
+Archivos a enviar al Windows:
+- `LocalEventNotifier/bin/Release/net8.0-windows/win-x64/publish/LocalEventNotifier.exe`
+- `LocalEventNotifier/bin/Release/net8.0-windows/win-x64/publish/settings.json`
+
 ## Probar rapido (sin esperar eventos reales)
 ```powershell
 LocalEventNotifier.exe --selftest
 ```
+
+## Ver el evento (investigar)
+- Click en la alerta para abrir una ventana con:
+  - XML del evento
+  - Boton "Abrir Event Viewer"
+  - Boton "Copiar wevtutil" (consulta exacta por `EventRecordID`)
 
 ## Ejecutar al iniciar sesion (recomendado en vez de UAC manual)
 Task Scheduler (Programador de tareas):

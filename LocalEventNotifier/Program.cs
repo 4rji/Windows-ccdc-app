@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
 using System.Text.Json;
@@ -26,6 +27,8 @@ internal sealed class TrayAppContext : ApplicationContext
     private int _cleanupEveryN;
 
     private bool _started;
+    private EventSnapshot? _lastEvent;
+    private EventDetailsForm? _detailsForm;
 
     public TrayAppContext(string[] args)
     {
@@ -41,6 +44,7 @@ internal sealed class TrayAppContext : ApplicationContext
             Text = "Local Event Notifier",
             ContextMenuStrip = BuildMenu()
         };
+        _notifyIcon.BalloonTipClicked += (_, _) => OpenLastEventDetails();
 
         var selfTest = args.Any(a => string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase));
         if (selfTest)
@@ -64,6 +68,7 @@ internal sealed class TrayAppContext : ApplicationContext
     {
         var menu = new ContextMenuStrip();
         menu.Items.Add("Self-test", null, (_, _) => StartSelfTest(exitWhenDone: false));
+        menu.Items.Add("Ver ultimo evento", null, (_, _) => OpenLastEventDetails());
         menu.Items.Add("Salir", null, (_, _) => ExitThread());
         return menu;
     }
@@ -196,7 +201,7 @@ internal sealed class TrayAppContext : ApplicationContext
         if (ShouldDedup($"4720|{createdUser}|{byUser}")) return;
 
         var msg = $"Usuario: {createdUser}\nCreado por: {byUser}\nHora: {FmtTime(e.TimeCreated)}";
-        Post(() => Show("Usuario creado (4720)", msg));
+        Post(() => ShowEvent("Usuario creado (4720)", msg, e));
     }
 
     private void NotifyRdpLogon(EventSnapshot e)
@@ -208,7 +213,7 @@ internal sealed class TrayAppContext : ApplicationContext
         if (ShouldDedup($"4624|{user}|{ip}")) return;
 
         var msg = $"Usuario: {user}\nIP/Host: {ip}\nHora: {FmtTime(e.TimeCreated)}";
-        Post(() => Show("RDP logon (4624 tipo 10)", msg));
+        Post(() => ShowEvent("RDP logon (4624 tipo 10)", msg, e));
     }
 
     private void NotifyKerberos(EventSnapshot e)
@@ -239,7 +244,7 @@ internal sealed class TrayAppContext : ApplicationContext
         };
 
         var msg = $"Usuario: {user}\nService: {svc}\nIP: {ip}\nHora: {FmtTime(e.TimeCreated)}";
-        Post(() => Show(title, msg));
+        Post(() => ShowEvent(title, msg, e));
     }
 
     private bool ShouldDedup(string key)
@@ -287,6 +292,34 @@ internal sealed class TrayAppContext : ApplicationContext
         _notifyIcon.ShowBalloonTip(6000, title, text, icon);
     }
 
+    private void ShowEvent(string title, string text, EventSnapshot e, ToolTipIcon icon = ToolTipIcon.Info)
+    {
+        _lastEvent = e;
+        var hint = _settings.AppendClickHint ? "\n\nClick para ver detalles." : "";
+        _notifyIcon.ShowBalloonTip(6000, title, text + hint, icon);
+    }
+
+    private void OpenLastEventDetails()
+    {
+        Post(() =>
+        {
+            if (_lastEvent is null)
+            {
+                Show("Local Event Notifier", "No hay un evento reciente para mostrar.");
+                return;
+            }
+
+            if (_detailsForm is null || _detailsForm.IsDisposed)
+            {
+                _detailsForm = new EventDetailsForm();
+            }
+
+            _detailsForm.SetSnapshot(_lastEvent);
+            _detailsForm.Show();
+            _detailsForm.Activate();
+        });
+    }
+
     protected override void ExitThreadCore()
     {
         foreach (var w in _watchers)
@@ -321,7 +354,8 @@ internal sealed record AppSettings(
     bool EnableRdpLogon = true,
     bool EnableKerberosTickets = true,
     bool IgnoreMachineAccounts = true,
-    int DedupSeconds = 10)
+    int DedupSeconds = 10,
+    bool AppendClickHint = true)
 {
     public static AppSettings Load()
     {
@@ -345,7 +379,11 @@ internal sealed record AppSettings(
 
 internal sealed record EventSnapshot(
     int EventId,
+    long? RecordId,
+    string? LogName,
+    string? MachineName,
     DateTime? TimeCreated,
+    string Xml,
     IReadOnlyDictionary<string, string> Data)
 {
     public static EventSnapshot From(EventRecord r)
@@ -353,7 +391,7 @@ internal sealed record EventSnapshot(
         // Only keep what we need; EventRecord must be disposed by the caller.
         var xml = r.ToXml();
         var data = ParseEventData(xml);
-        return new EventSnapshot(r.Id, r.TimeCreated, data);
+        return new EventSnapshot(r.Id, r.RecordId, r.LogName, r.MachineName, r.TimeCreated, xml, data);
     }
 
     private static IReadOnlyDictionary<string, string> ParseEventData(string xml)
