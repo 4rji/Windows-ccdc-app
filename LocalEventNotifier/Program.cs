@@ -23,16 +23,25 @@ internal sealed class TrayAppContext : ApplicationContext
     private readonly Control _ui;
     private readonly List<EventLogWatcher> _watchers = new();
     private readonly AppSettings _settings;
+    private readonly FileLog? _fileLog;
+    private readonly TimelineCsvLog? _timelineCsvLog;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _recent = new();
+    private readonly ConcurrentQueue<PendingNotification> _notificationQueue = new();
     private int _cleanupEveryN;
 
     private bool _started;
     private EventSnapshot? _lastEvent;
     private EventDetailsForm? _detailsForm;
 
+    private int _unreadEvents;
+    private bool _balloonInFlight;
+    private DateTimeOffset _balloonAssumeClosedAtUtc;
+
     public TrayAppContext(string[] args)
     {
         _settings = AppSettings.Load();
+        _fileLog = FileLog.TryCreate(_settings);
+        _timelineCsvLog = TimelineCsvLog.TryCreate(_settings);
 
         _ui = new Control();
         _ui.CreateControl();
@@ -45,6 +54,17 @@ internal sealed class TrayAppContext : ApplicationContext
             ContextMenuStrip = BuildMenu()
         };
         _notifyIcon.BalloonTipClicked += (_, _) => OpenLastEventDetails();
+        _notifyIcon.BalloonTipClosed += (_, _) =>
+        {
+            // Windows can drop or coalesce balloon tips; treat the closure as a signal to show the next one.
+            _balloonInFlight = false;
+            PumpNotifications();
+        };
+
+        // Periodically pump the queue (also acts as a failsafe if BalloonTipClosed doesn't fire).
+        var pumpTimer = new System.Windows.Forms.Timer { Interval = 250 };
+        pumpTimer.Tick += (_, _) => PumpNotifications();
+        pumpTimer.Start();
 
         var selfTest = args.Any(a => string.Equals(a, "--selftest", StringComparison.OrdinalIgnoreCase));
         if (selfTest)
@@ -69,6 +89,10 @@ internal sealed class TrayAppContext : ApplicationContext
         var menu = new ContextMenuStrip();
         menu.Items.Add("Self-test", null, (_, _) => StartSelfTest(exitWhenDone: false));
         menu.Items.Add("View last event", null, (_, _) => OpenLastEventDetails());
+        menu.Items.Add("Open log file", null, (_, _) => OpenLogFile());
+        menu.Items.Add("Open log folder", null, (_, _) => OpenLogFolder());
+        menu.Items.Add("Open timeline CSV", null, (_, _) => OpenTimelineCsv());
+        menu.Items.Add("Open timeline folder", null, (_, _) => OpenTimelineFolder());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
         return menu;
     }
@@ -289,14 +313,90 @@ internal sealed class TrayAppContext : ApplicationContext
 
     private void Show(string title, string text, ToolTipIcon icon = ToolTipIcon.Info)
     {
-        _notifyIcon.ShowBalloonTip(6000, title, text, icon);
+        if (icon == ToolTipIcon.Error)
+        {
+            _fileLog?.LogError(title, text);
+            _timelineCsvLog?.LogError(title, text);
+        }
+
+        EnqueueNotification(new PendingNotification(
+            Title: title,
+            Text: text,
+            Icon: icon,
+            TimeoutMs: Math.Max(1000, _settings.NotificationTimeoutMs),
+            CountsAsUnreadEvent: false));
     }
 
     private void ShowEvent(string title, string text, EventSnapshot e, ToolTipIcon icon = ToolTipIcon.Info)
     {
         _lastEvent = e;
+        _fileLog?.LogEvent(e, title, text, icon);
+        _timelineCsvLog?.LogEvent(e, title, text, icon);
         var hint = _settings.AppendClickHint ? "\n\nClick to view details." : "";
-        _notifyIcon.ShowBalloonTip(6000, title, text + hint, icon);
+        EnqueueNotification(new PendingNotification(
+            Title: title,
+            Text: text + hint,
+            Icon: icon,
+            TimeoutMs: Math.Max(1000, _settings.NotificationTimeoutMs),
+            CountsAsUnreadEvent: true));
+    }
+
+    private void EnqueueNotification(PendingNotification n)
+    {
+        _notificationQueue.Enqueue(n);
+        PumpNotifications();
+    }
+
+    private void PumpNotifications()
+    {
+        // Always run from the UI thread.
+        if (_ui.InvokeRequired)
+        {
+            Post(PumpNotifications);
+            return;
+        }
+
+        // If a balloon is "in flight", release it after a timeout so the queue doesn't stall.
+        if (_balloonInFlight && DateTimeOffset.UtcNow < _balloonAssumeClosedAtUtc)
+        {
+            return;
+        }
+
+        _balloonInFlight = false;
+
+        if (!_notificationQueue.TryDequeue(out var n))
+        {
+            return;
+        }
+
+        if (n.CountsAsUnreadEvent)
+        {
+            _unreadEvents++;
+            UpdateTrayTooltip();
+        }
+
+        _balloonInFlight = true;
+        _balloonAssumeClosedAtUtc = DateTimeOffset.UtcNow.AddMilliseconds(n.TimeoutMs + 1500);
+
+        try
+        {
+            _notifyIcon.ShowBalloonTip(n.TimeoutMs, n.Title, n.Text, n.Icon);
+        }
+        catch
+        {
+            // Best-effort: if the shell refuses the balloon, keep pumping subsequent notifications.
+            _balloonInFlight = false;
+        }
+    }
+
+    private void UpdateTrayTooltip()
+    {
+        // NotifyIcon.Text has a small max length (63 chars). Keep it short.
+        var baseText = "Local Event Notifier";
+        var text = _unreadEvents > 0 ? $"{baseText} ({_unreadEvents} new)" : baseText;
+        if (text.Length > 63) text = text[..63];
+
+        try { _notifyIcon.Text = text; } catch { }
     }
 
     private void OpenLastEventDetails()
@@ -317,6 +417,9 @@ internal sealed class TrayAppContext : ApplicationContext
             _detailsForm.SetSnapshot(_lastEvent);
             _detailsForm.Show();
             _detailsForm.Activate();
+
+            _unreadEvents = 0;
+            UpdateTrayTooltip();
         });
     }
 
@@ -328,11 +431,62 @@ internal sealed class TrayAppContext : ApplicationContext
             try { w.Dispose(); } catch { }
         }
 
+        try { _fileLog?.Dispose(); } catch { }
+        try { _timelineCsvLog?.Dispose(); } catch { }
+
         _notifyIcon.Visible = false;
         _notifyIcon.Dispose();
         _ui.Dispose();
 
         base.ExitThreadCore();
+    }
+
+    private void OpenTimelineCsv()
+    {
+        if (_timelineCsvLog is null)
+        {
+            Show("Local Event Notifier", "Timeline CSV logging is disabled.");
+            return;
+        }
+
+        _timelineCsvLog.OpenCsvFile();
+        Show("Local Event Notifier", $"Timeline CSV:\n{_timelineCsvLog.PathOnDisk}");
+    }
+
+    private void OpenTimelineFolder()
+    {
+        if (_timelineCsvLog is null)
+        {
+            Show("Local Event Notifier", "Timeline CSV logging is disabled.");
+            return;
+        }
+
+        _timelineCsvLog.OpenFolder();
+        Show("Local Event Notifier", $"Timeline folder:\n{_timelineCsvLog.DirectoryOnDisk}");
+    }
+
+    private void OpenLogFile()
+    {
+        if (_fileLog is null)
+        {
+            Show("Local Event Notifier", "File logging is disabled.");
+            return;
+        }
+
+        _fileLog.OpenLogFile();
+        Show("Local Event Notifier", $"Log file:\n{_fileLog.PathOnDisk}");
+    }
+
+    private void OpenLogFolder()
+    {
+        if (_fileLog is null)
+        {
+            Show("Local Event Notifier", "File logging is disabled.");
+            return;
+        }
+
+        _fileLog.OpenLogFolder();
+        Show("Local Event Notifier", $"Log folder:\n{_fileLog.DirectoryOnDisk}");
     }
 
     private static string FmtTime(DateTime? dt)
@@ -355,7 +509,17 @@ internal sealed record AppSettings(
     bool EnableKerberosTickets = true,
     bool IgnoreMachineAccounts = true,
     int DedupSeconds = 10,
-    bool AppendClickHint = true)
+    bool AppendClickHint = true,
+    int NotificationTimeoutMs = 8000,
+    bool EnableFileLog = true,
+    string? LogPath = null,
+    int LogMaxBytes = 2_000_000,
+    int LogMaxFiles = 5,
+    bool LogIncludeXml = false,
+    bool EnableTimelineCsvLog = true,
+    string? TimelineCsvPath = null,
+    int TimelineCsvMaxBytes = 2_000_000,
+    int TimelineCsvMaxFiles = 5)
 {
     public static AppSettings Load()
     {
@@ -376,6 +540,13 @@ internal sealed record AppSettings(
         }
     }
 }
+
+internal sealed record PendingNotification(
+    string Title,
+    string Text,
+    ToolTipIcon Icon,
+    int TimeoutMs,
+    bool CountsAsUnreadEvent);
 
 internal sealed record EventSnapshot(
     int EventId,

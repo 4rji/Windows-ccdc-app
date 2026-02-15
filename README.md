@@ -65,3 +65,8 @@ Typical subcategories:
 
 ## Configuration
 `settings.json` is copied next to the exe. You can disable alerts if it gets too noisy (Kerberos can generate a lot).
+
+Additional settings:
+- `NotificationTimeoutMs` (default `8000`): how long each popup stays on screen (best-effort; Windows may still coalesce/drop popups under heavy load).
+- `EnableFileLog` / `LogPath`: NDJSON log for debugging/history (default `logs/events.ndjson`).
+- `EnableTimelineCsvLog` / `TimelineCsvPath`: CSV timeline (default `logs/timeline.csv`) designed to open cleanly in Timeline Explorer.

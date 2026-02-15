@@ -4,5 +4,17 @@
   "EnableKerberosTickets": true,
   "IgnoreMachineAccounts": true,
   "DedupSeconds": 10,
-  "AppendClickHint": true
+  "AppendClickHint": true,
+  "NotificationTimeoutMs": 8000,
+
+  "EnableFileLog": true,
+  "LogPath": "logs/events.ndjson",
+  "LogMaxBytes": 2000000,
+  "LogMaxFiles": 5,
+  "LogIncludeXml": false,
+
+  "EnableTimelineCsvLog": true,
+  "TimelineCsvPath": "logs/timeline.csv",
+  "TimelineCsvMaxBytes": 2000000,
+  "TimelineCsvMaxFiles": 5
 }
