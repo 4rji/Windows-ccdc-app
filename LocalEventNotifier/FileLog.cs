@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Windows.Forms;
 
 namespace LocalEventNotifier;
 
@@ -312,4 +313,3 @@ internal sealed class FileLog : IDisposable
         string? Wevtutil,
         string? Xml);
 }
-

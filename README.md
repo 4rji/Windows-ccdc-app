@@ -5,7 +5,15 @@ Mini app (WinForms, tray icon) that shows **local pop-up notifications** when:
 - Someone logs on via RDP (`Security` Event ID **4624** with `LogonType=10`)
 - A Kerberos ticket is issued on the DC (`Security` Event IDs **4768/4769/4770**)
 
-No email. Local notifications only.
+No email. Local notifications + optional local logs only.
+
+## Features
+- Tray pop-up notifications (dedup + queueing to avoid missed bursts).
+- Click a notification to open an "Event Details" window (summary + raw XML + `wevtutil` query helper).
+- Local history logs next to the exe:
+  - NDJSON: `logs/events.ndjson` (good for debugging/grep).
+  - Timeline Explorer CSV: `logs/timeline.csv` (open directly in Timeline Explorer to filter/sort/group).
+- Tray menu shortcuts: open the log file/folder and timeline CSV/folder.
 
 ## Requirements
 - Windows Server 2022 (DC) with auditing enabled so these events exist.
@@ -70,3 +78,45 @@ Additional settings:
 - `NotificationTimeoutMs` (default `8000`): how long each popup stays on screen (best-effort; Windows may still coalesce/drop popups under heavy load).
 - `EnableFileLog` / `LogPath`: NDJSON log for debugging/history (default `logs/events.ndjson`).
 - `EnableTimelineCsvLog` / `TimelineCsvPath`: CSV timeline (default `logs/timeline.csv`) designed to open cleanly in Timeline Explorer.
+
+## Making Timeline Explorer CSV From EVTX (Eric Zimmerman Tools)
+
+### Linux (auditd) quick commands (optional)
+To view audit entries:
+```bash
+sudo ausearch -k users
+sudo aureport -f -i | grep /etc/passwd
+```
+
+### Download tools
+The tools are from:
+https://ericzimmerman.github.io/#!index.md
+
+.NET downloads:
+https://dotnet.microsoft.com/en-us/download/dotnet/9.0
+
+Direct downloads (net9 builds):
+EvtxECmd:
+https://download.ericzimmermanstools.com/net9/EvtxECmd.zip
+
+Timeline Explorer:
+https://download.ericzimmermanstools.com/net9/TimelineExplorer.zip
+
+.NET Desktop Runtime 9.0 (Windows x64):
+https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/runtime-desktop-9.0.12-windows-x64-installer
+
+### Generate a readable CSV from Windows Event Logs
+Run EvtxECmd to export a CSV (Security, System, etc.):
+```powershell
+mkdir C:\temp
+cd <path-to>\EvtxECmd
+
+# Run this to generate the CSV
+.\EvtxECmd.exe -f C:\Windows\System32\winevt\Logs\Security.evtx --csv "C:\temp\" --csvf inv.csv
+```
+
+### View in Timeline Explorer
+1) Run Timeline Explorer
+2) Import `C:\temp\inv.csv`
+
+Re-run EvtxECmd as needed to refresh the CSV.
