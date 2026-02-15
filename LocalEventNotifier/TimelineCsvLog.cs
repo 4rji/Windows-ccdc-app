@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
+using System.Windows.Forms;
 
 namespace LocalEventNotifier;
 
@@ -362,4 +363,3 @@ internal sealed class TimelineCsvLog : IDisposable
         try { _signal.Dispose(); } catch { }
     }
 }
-
